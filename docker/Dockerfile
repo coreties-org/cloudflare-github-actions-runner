@@ -15,13 +15,15 @@ WORKDIR /opt/actions-runner-source
 RUN git clone --depth 1 --branch "v${RUNNER_VERSION}" https://github.com/actions/runner.git . \
   && test "$(git rev-parse HEAD)" = "${RUNNER_SOURCE_REVISION}"
 COPY docker/actions-runner-results-proxy.patch /tmp/actions-runner-results-proxy.patch
-# NuGetAudit=false: actions/runner v2.336.0 builds with warnings as errors, so
-# any NuGet advisory published after the release (e.g. GHSA-846f-f764-76mx on
-# System.Security.Cryptography.Pkcs 10.0.7) breaks the pinned build. MSBuild
-# reads environment variables as properties.
+# actions/runner v2.336.0 builds with NuGetAudit and warnings as errors, so any
+# NuGet advisory published after the release (e.g. GHSA-846f-f764-76mx on
+# System.Security.Cryptography.Pkcs 10.0.7) breaks the pinned build. Its
+# Directory.Build.props sets NuGetAudit unconditionally, so edit it in place.
 RUN git apply /tmp/actions-runner-results-proxy.patch \
+  && sed -i 's|<NuGetAudit>true</NuGetAudit>|<NuGetAudit>false</NuGetAudit>|' src/Directory.Build.props \
+  && grep -q '<NuGetAudit>false</NuGetAudit>' src/Directory.Build.props \
   && cd src \
-  && NuGetAudit=false ./dev.sh layout Release
+  && ./dev.sh layout Release
 
 # The runner invokes node20 to evaluate workflow expressions (for example,
 # hashFiles()) and can still execute Node 20 actions during GitHub's temporary
