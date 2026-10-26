@@ -55,7 +55,6 @@
     "@cloudflare/containers": "^0.3.7",
     "@inquirer/prompts": "^8.5.2",
     "tsx": "^4.23.12",
-    "wrangler": "^4.121.0",
     "zod": "4.4.3"
   },
   "devDependencies": {
@@ -66,7 +65,8 @@
     "typescript": "^5.9.3",
     "vite": "catalog:",
     "vite-plus": "catalog:",
-    "vitest": "catalog:"
+    "vitest": "catalog:",
+    "wrangler": "^4.152.0"
   },
   "devEngines": {
     "packageManager": {
