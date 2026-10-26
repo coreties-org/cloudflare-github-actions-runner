@@ -6,6 +6,7 @@ import {
   configureCustomMachine,
   createContainerRegistryPushCredentials,
   getCustomMachineRolloutStatus,
+  parseContainerApplications,
   prepareRunnerApplication,
   reconcileRunnerApplicationCapacity,
   rolloutRunnerApplicationImages,
@@ -606,5 +607,23 @@ describe("Cloudflare custom Container configuration", () => {
       rolloutId: "rollout-id",
     });
     expect(deps.fetch.mock.calls[2]?.[1]).toMatchObject({ method: "POST" });
+  });
+});
+
+describe("parseContainerApplications", () => {
+  it("skips unrelated Sandbox SDK applications instead of failing the whole list", () => {
+    const sandboxApplication = {
+      id: "sandbox-id",
+      name: "my-sandbox",
+      scheduling_policy: "durable_object",
+      durable_objects: { namespace_id: "namespace-id" },
+      configuration: {},
+      health: { instances: { active: 8, starting: 0 } },
+    };
+    expect(parseContainerApplications([sandboxApplication, application()])).toEqual([application()]);
+  });
+
+  it("still rejects a response that is not a list", () => {
+    expect(() => parseContainerApplications({ applications: [] })).toThrow(CloudflareContainersApiError);
   });
 });

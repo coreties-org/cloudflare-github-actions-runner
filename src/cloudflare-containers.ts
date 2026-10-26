@@ -239,11 +239,8 @@ export async function findRunnerApplication(
     { method: "GET" },
     dependencies,
   );
-  const applications = z.array(containerApplicationSchema).safeParse(result);
-  if (!applications.success) {
-    throw new CloudflareContainersApiError("Cloudflare returned an invalid Container application list", 502);
-  }
-  const application = applications.data.find((candidate) => candidate.name === applicationName);
+  const applications = parseContainerApplications(result);
+  const application = applications.find((candidate) => candidate.name === applicationName);
   if (application === undefined) {
     throw new CloudflareContainersApiError(
       `Container application ${applicationName} was not found; deploy the Worker before using this runner label`,
@@ -368,11 +365,24 @@ async function listApplications(
   dependencies: ContainersApiDependencies,
 ): Promise<ContainerApplication[]> {
   const result = await containersApiRequest(env, "/applications?per_page=100", { method: "GET" }, dependencies);
-  const applications = z.array(containerApplicationSchema).safeParse(result);
-  if (!applications.success) {
+  return parseContainerApplications(result);
+}
+
+/**
+ * Parses an application list, skipping entries that are not runner-shaped.
+ * The account can hold unrelated Container applications, for example ones
+ * created by the Sandbox SDK, whose `configuration` is empty and which have
+ * no `max_instances`. One of those must not make every runner operation fail.
+ */
+export function parseContainerApplications(result: unknown): ContainerApplication[] {
+  const list = z.array(z.unknown()).safeParse(result);
+  if (!list.success) {
     throw new CloudflareContainersApiError("Cloudflare returned an invalid Container application list", 502);
   }
-  return applications.data;
+  return list.data.flatMap((item) => {
+    const application = containerApplicationSchema.safeParse(item);
+    return application.success ? [application.data] : [];
+  });
 }
 
 function runnerApplication(env: ContainersApiEnvironment, application: ContainerApplication): boolean {
