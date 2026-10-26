@@ -1,7 +1,7 @@
 FROM ubuntu:24.04 AS runner-builder
 
-ARG RUNNER_VERSION=2.336.0
-ARG RUNNER_SOURCE_REVISION=98aabcd429c4e8402406c56ce2d26387fed3b9ce
+ARG RUNNER_VERSION=2.338.1
+ARG RUNNER_SOURCE_REVISION=e78522a9a7b01c3bcd7ac0da6e3a9bb6cd513a76
 
 RUN apt-get update \
   && apt-get install --yes --no-install-recommends \
@@ -15,13 +15,7 @@ WORKDIR /opt/actions-runner-source
 RUN git clone --depth 1 --branch "v${RUNNER_VERSION}" https://github.com/actions/runner.git . \
   && test "$(git rev-parse HEAD)" = "${RUNNER_SOURCE_REVISION}"
 COPY docker/actions-runner-results-proxy.patch /tmp/actions-runner-results-proxy.patch
-# actions/runner v2.336.0 builds with NuGetAudit and warnings as errors, so any
-# NuGet advisory published after the release (e.g. GHSA-846f-f764-76mx on
-# System.Security.Cryptography.Pkcs 10.0.7) breaks the pinned build. Its
-# Directory.Build.props sets NuGetAudit unconditionally, so edit it in place.
 RUN git apply /tmp/actions-runner-results-proxy.patch \
-  && sed -i 's|<NuGetAudit>true</NuGetAudit>|<NuGetAudit>false</NuGetAudit>|' src/Directory.Build.props \
-  && grep -q '<NuGetAudit>false</NuGetAudit>' src/Directory.Build.props \
   && cd src \
   && ./dev.sh layout Release
 
@@ -38,7 +32,7 @@ RUN test -x /opt/actions-runner-source/_layout/externals/node20/bin/node \
 
 FROM ubuntu:24.04
 
-ARG RUNNER_VERSION=2.336.0
+ARG RUNNER_VERSION=2.338.1
 ARG NODE_VERSION=22.23.2
 ARG NODE_SHA256=d60acfe00a2932254bb0ad20e01b0d74397a0875595de719654b214f4b03f307
 
