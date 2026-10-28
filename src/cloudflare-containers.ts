@@ -97,7 +97,7 @@ export interface RolloutRunnerApplicationImagesOptions {
    * replaces the Cloudflare live-instance check, so containers kept alive by
    * `sleepAfter` without a job no longer block the rollout.
    */
-  applicationIsBusy?: (applicationName: string) => boolean;
+  applicationIsBusy?: (applicationName: string) => boolean | Promise<boolean>;
   /** Reports how many runner applications this rollout pass has inspected. */
   onProgress?: (progress: RunnerApplicationImageRolloutProgress) => Promise<void>;
 }
@@ -486,10 +486,10 @@ export async function rolloutRunnerApplicationImages(
     }
   };
   await reportProgress({ processedApplications: 0, totalApplications: applications.length });
-  const applicationIsBusy = (application: ContainerApplication): boolean =>
+  const applicationIsBusy = async (application: ContainerApplication): Promise<boolean> =>
     options.applicationIsBusy === undefined
       ? applicationHasLiveInstances(application)
-      : options.applicationIsBusy(application.name);
+      : await options.applicationIsBusy(application.name);
 
   for (const [index, listedApplication] of applications.entries()) {
     try {
@@ -511,7 +511,8 @@ export async function rolloutRunnerApplicationImages(
       ) {
         continue;
       }
-      if (applicationIsBusy(application)) {
+      // eslint-disable-next-line no-await-in-loop -- busy state must be read for this exact application.
+      if (await applicationIsBusy(application)) {
         skippedApplications.push(application.name);
         continue;
       }
@@ -524,7 +525,8 @@ export async function rolloutRunnerApplicationImages(
       // the full rollout target cannot restore that stale machine shape.
       // eslint-disable-next-line no-await-in-loop -- this exact application owns its next rollout body.
       const current = await findRunnerApplication(env, application.name, dependencies);
-      if (applicationIsBusy(current)) {
+      // eslint-disable-next-line no-await-in-loop -- re-read right before the rollout so a newly admitted job is seen.
+      if (await applicationIsBusy(current)) {
         skippedApplications.push(application.name);
         continue;
       }

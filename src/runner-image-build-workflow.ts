@@ -401,12 +401,11 @@ export class RunnerImageBuildWorkflow extends WorkflowEntrypoint<
             }
             try {
               await builder.updateBuildProgress(event.payload.workflowId, "rolling-out");
-              const busyApplications = new Set(
-                await this.env.RUNNER_SCHEDULER.getByName(this.env.CLOUDFLARE_ACCOUNT_ID).applicationsWithActiveJobs(),
-              );
+              const scheduler = this.env.RUNNER_SCHEDULER.getByName(this.env.CLOUDFLARE_ACCOUNT_ID);
               const result = await rolloutRunnerApplicationImages(this.env, completed.imageReference, undefined, {
                 reissueMatchingImageRollouts: lease.reissueMatchingImageRollouts,
-                applicationIsBusy: (applicationName) => busyApplications.has(applicationName),
+                applicationIsBusy: async (applicationName) =>
+                  (await scheduler.applicationsWithActiveJobs()).includes(applicationName),
                 onProgress: (progress) =>
                   builder.updateBuildProgress(event.payload.workflowId, "rolling-out", progress),
               });
