@@ -474,6 +474,49 @@ describe("Cloudflare custom Container configuration", () => {
     expect(deps.fetch).toHaveBeenCalledTimes(3);
   });
 
+  it("rolls an application whose live instances hold no scheduler job", async () => {
+    const orphaned = {
+      ...application(resources, "runner-standard-3"),
+      health: { instances: { active: 2 } },
+    };
+    const deps = dependencies(
+      response([orphaned]),
+      response([orphaned]),
+      response([]),
+      response(orphaned),
+      response([orphaned]),
+      response(rollout("completed", resources)),
+    );
+    const applicationIsBusy = vi.fn<(applicationName: string) => boolean>(() => false);
+
+    await expect(
+      rolloutRunnerApplicationImages(env, "registry.cloudflare.com/account/runner:new", deps, { applicationIsBusy }),
+    ).resolves.toEqual({
+      updatedApplications: ["runner-standard-3"],
+      skippedApplications: [],
+    });
+    expect(applicationIsBusy).toHaveBeenCalledWith("runner-standard-3");
+    expect(deps.fetch.mock.calls[5]?.[1]).toMatchObject({ method: "POST" });
+  });
+
+  it("defers an image rollout while the scheduler reports an active job", async () => {
+    const busy = {
+      ...application(resources, "runner-standard-3"),
+      health: { instances: { active: 1 } },
+    };
+    const deps = dependencies(response([busy]), response([busy]), response([]));
+
+    await expect(
+      rolloutRunnerApplicationImages(env, "registry.cloudflare.com/account/runner:new", deps, {
+        applicationIsBusy: (applicationName) => applicationName === "runner-standard-3",
+      }),
+    ).resolves.toEqual({
+      updatedApplications: [],
+      skippedApplications: ["runner-standard-3"],
+    });
+    expect(deps.fetch).toHaveBeenCalledTimes(3);
+  });
+
   it("creates a missing rollout after a prior image PATCH reached Cloudflare", async () => {
     const targetImage = "registry.cloudflare.com/account/runner:new";
     const alreadyPatched = {

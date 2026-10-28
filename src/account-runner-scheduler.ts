@@ -2228,6 +2228,19 @@ export class AccountRunnerScheduler extends DurableObject<WorkerEnvironment> {
     }
   }
 
+  async applicationsWithActiveJobs(): Promise<string[]> {
+    return this.rows<{ application_name: string }>(
+      `SELECT DISTINCT application_name FROM scheduler_slots
+       WHERE configuration_state = 'configuring'
+          OR EXISTS (
+            SELECT 1 FROM scheduler_jobs
+            WHERE scheduler_jobs.slot_id = scheduler_slots.slot_id AND status IN (${activeStatusList()})
+          )
+       ORDER BY application_name ASC`,
+      ...ACTIVE_JOB_STATES,
+    ).map((slot) => slot.application_name);
+  }
+
   async status(): Promise<SchedulerStatus> {
     const reserved = this.reservedResources();
     const configured = this.configuredResources();

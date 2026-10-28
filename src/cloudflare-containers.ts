@@ -92,6 +92,12 @@ export interface RolloutRunnerApplicationImagesOptions {
    * recent PATCH reached its own rollout (for example A→B→A).
    */
   reissueMatchingImageRollouts?: boolean;
+  /**
+   * Scheduler view of which applications hold active jobs. When provided it
+   * replaces the Cloudflare live-instance check, so containers kept alive by
+   * `sleepAfter` without a job no longer block the rollout.
+   */
+  applicationIsBusy?: (applicationName: string) => boolean;
   /** Reports how many runner applications this rollout pass has inspected. */
   onProgress?: (progress: RunnerApplicationImageRolloutProgress) => Promise<void>;
 }
@@ -480,6 +486,10 @@ export async function rolloutRunnerApplicationImages(
     }
   };
   await reportProgress({ processedApplications: 0, totalApplications: applications.length });
+  const applicationIsBusy = (application: ContainerApplication): boolean =>
+    options.applicationIsBusy === undefined
+      ? applicationHasLiveInstances(application)
+      : options.applicationIsBusy(application.name);
 
   for (const [index, listedApplication] of applications.entries()) {
     try {
@@ -501,7 +511,7 @@ export async function rolloutRunnerApplicationImages(
       ) {
         continue;
       }
-      if (applicationHasLiveInstances(application)) {
+      if (applicationIsBusy(application)) {
         skippedApplications.push(application.name);
         continue;
       }
@@ -514,7 +524,7 @@ export async function rolloutRunnerApplicationImages(
       // the full rollout target cannot restore that stale machine shape.
       // eslint-disable-next-line no-await-in-loop -- this exact application owns its next rollout body.
       const current = await findRunnerApplication(env, application.name, dependencies);
-      if (applicationHasLiveInstances(current)) {
+      if (applicationIsBusy(current)) {
         skippedApplications.push(application.name);
         continue;
       }

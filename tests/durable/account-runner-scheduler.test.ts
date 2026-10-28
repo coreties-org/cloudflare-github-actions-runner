@@ -705,3 +705,39 @@ describe("AccountRunnerScheduler JIT cache assignments", () => {
     expect((await scheduler.status()).jobs.find((entry) => entry.jobId === source.jobId)?.status).toBe("failed");
   });
 });
+
+describe("AccountRunnerScheduler applicationsWithActiveJobs", () => {
+  it("reports applications whose slots hold an active job or are being configured", async () => {
+    const scheduler = env.RUNNER_SCHEDULER.getByName("applications-with-active-jobs");
+    const source = job("1900", "cf-standard-3-job-1900", "refs/heads/main");
+    await scheduler.submit(source);
+    await runInDurableObject(scheduler, async (_instance, state) => {
+      state.storage.sql.exec(
+        `UPDATE scheduler_slots
+         SET applied_max_instances = desired_max_instances, capacity_update_in_progress = 0, configuration_state = 'ready'`,
+      );
+      state.storage.sql.exec(
+        "UPDATE scheduler_jobs SET status = 'running', slot_id = 'preset:standard-3' WHERE job_id = ?",
+        source.jobId,
+      );
+    });
+    const applicationName = (await scheduler.status()).slots.find(
+      (slot) => slot.slotId === "preset:standard-3",
+    )?.applicationName;
+    expect(applicationName).toBeDefined();
+
+    await expect(scheduler.applicationsWithActiveJobs()).resolves.toEqual([applicationName]);
+
+    await runInDurableObject(scheduler, async (_instance, state) => {
+      state.storage.sql.exec("UPDATE scheduler_jobs SET status = 'completed' WHERE job_id = ?", source.jobId);
+    });
+    await expect(scheduler.applicationsWithActiveJobs()).resolves.toEqual([]);
+
+    await runInDurableObject(scheduler, async (_instance, state) => {
+      state.storage.sql.exec(
+        "UPDATE scheduler_slots SET configuration_state = 'configuring' WHERE slot_id = 'preset:standard-3'",
+      );
+    });
+    await expect(scheduler.applicationsWithActiveJobs()).resolves.toEqual([applicationName]);
+  });
+});
