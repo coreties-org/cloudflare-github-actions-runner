@@ -132,7 +132,8 @@ async function forwardCacheControl(request, response) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         key: payload.key,
-        restoreKeys: payload.restoreKeys,
+        // @actions/cache sends Twirp JSON with proto field names (restore_keys).
+        restoreKeys: payload.restore_keys ?? payload.restoreKeys ?? [],
         version: payload.version,
       }),
     });

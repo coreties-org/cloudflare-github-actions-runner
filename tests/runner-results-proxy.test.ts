@@ -177,4 +177,57 @@ describe("runner results proxy cache uploads", () => {
       await rm(directory, { recursive: true, force: true });
     }
   }, 15_000);
+
+  it("forwards the restore keys @actions/cache sends as restore_keys to the Worker lookup", async () => {
+    const lookups: unknown[] = [];
+    const worker = createServer(async (request, response) => {
+      const url = new URL(request.url ?? "/", "http://worker.test");
+      if (request.method === "POST" && url.pathname === "/v1/runner-cache-v2/lookup") {
+        lookups.push(JSON.parse(new TextDecoder().decode(await requestBody(request))));
+        response
+          .writeHead(200, { "Content-Type": "application/json" })
+          .end(JSON.stringify({ ok: false, signedDownloadUrl: "", matchedKey: "" }));
+        return;
+      }
+      response.writeHead(404).end();
+    });
+    const workerPort = await listen(worker);
+    const directory = await mkdtemp(join(tmpdir(), "runner-results-proxy-test-"));
+    const configurationPath = join(directory, "cache-configuration");
+    const upstreamPath = join(directory, "results-upstream");
+    await writeFile(configurationPath, `http://127.0.0.1:${workerPort}\nBearer runner-capability\n`);
+    await writeFile(upstreamPath, "http://127.0.0.1:9");
+
+    const portServer = createServer();
+    const proxyPort = await listen(portServer);
+    await close(portServer);
+    const origin = `http://127.0.0.1:${proxyPort}`;
+    const child = spawn(process.execPath, ["docker/runner-results-proxy.mjs"], {
+      cwd: process.cwd(),
+      env: {
+        ...process.env,
+        CF_RUNNER_RESULTS_PROXY_PORT: String(proxyPort),
+        CF_RUNNER_RESULTS_PROXY_URL: origin,
+        CF_RUNNER_RESULTS_PROXY_CONFIGURATION_PATH: configurationPath,
+        CF_RUNNER_RESULTS_PROXY_UPSTREAM_PATH: upstreamPath,
+      },
+      stdio: "ignore",
+    });
+
+    try {
+      await waitForProxy(origin);
+      const response = await fetch(`${origin}/twirp/github.actions.results.api.v1.CacheService/GetCacheEntryDownloadURL`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key: "lint-abc-sha1", restore_keys: ["lint-abc-"], version: "v1" }),
+      });
+
+      expect(response.status).toBe(200);
+      expect(lookups).toEqual([{ key: "lint-abc-sha1", restoreKeys: ["lint-abc-"], version: "v1" }]);
+    } finally {
+      await stop(child);
+      await close(worker);
+      await rm(directory, { recursive: true, force: true });
+    }
+  }, 15_000);
 });
