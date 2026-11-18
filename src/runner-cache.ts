@@ -2,7 +2,16 @@ import { z } from "zod";
 
 import type { GitHubRepositoryTarget } from "./github-repository";
 
-const runnerCacheTokenLifetimeMs = 30 * 60 * 1_000;
+// The runner capability is minted when the Container is provisioned, not when
+// a job starts. GitHub may hand an idle JIT runner a different queued job long
+// after the job that caused its creation was taken by another runner, and the
+// Container stays up for `sleepAfter` (1 h) waiting for one. The capability
+// must therefore outlive that idle window plus GitHub's default 6 h job
+// timeout; a 30 min lifetime made such runners fail the job-started hook with
+// 401. Cache v2 access is still bound to the scheduler's observed assignment.
+const runnerIdleLifetimeMs = 60 * 60 * 1_000;
+const githubDefaultJobTimeoutMs = 6 * 60 * 60 * 1_000;
+export const runnerCacheTokenLifetimeMs = runnerIdleLifetimeMs + githubDefaultJobTimeoutMs;
 const cacheKeyPattern = /^[A-Za-z0-9][A-Za-z0-9._-]{0,239}$/u;
 const actionCacheTokenLifetimeMs = 30 * 60 * 1_000;
 

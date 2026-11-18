@@ -7,6 +7,7 @@ import {
   handleRunnerCacheRequest,
   handleRunnerCacheV2Request,
   runnerCacheObjectKey,
+  runnerCacheTokenLifetimeMs,
   verifyRunnerCacheAuthorization,
   type CacheQuotaActionCommit,
   type CacheQuotaActionCommitResult,
@@ -230,12 +231,25 @@ describe("runner R2 cache", () => {
     await expect(verifyRunnerCacheAuthorization("cache-signing-key", `Bearer ${token}`, 1_001)).resolves.toEqual({
       version: 1,
       ...claimInput,
-      expiresAt: 1_801_000,
+      expiresAt: 1_000 + runnerCacheTokenLifetimeMs,
     });
     await expect(verifyRunnerCacheAuthorization("other-key", `Bearer ${token}`, 1_001)).resolves.toBeUndefined();
     await expect(
-      verifyRunnerCacheAuthorization("cache-signing-key", `Bearer ${token}`, 1_801_000),
+      verifyRunnerCacheAuthorization("cache-signing-key", `Bearer ${token}`, 1_000 + runnerCacheTokenLifetimeMs),
     ).resolves.toBeUndefined();
+  });
+
+  it("keeps the capability valid for a runner that idles before GitHub assigns it a long job", async () => {
+    const provisionedAt = 1_000;
+    const token = await createRunnerCacheAuthorization("cache-signing-key", claimInput, provisionedAt);
+    // Observed in production: a displaced JIT runner waited ~59 min for a new
+    // job; its cache save then happens at the end of that job.
+    const idle = 59 * 60 * 1_000;
+    const longJob = 5 * 60 * 60 * 1_000;
+
+    await expect(
+      verifyRunnerCacheAuthorization("cache-signing-key", `Bearer ${token}`, provisionedAt + idle + longJob),
+    ).resolves.toMatchObject({ runnerName: claimInput.runnerName });
   });
 
   it("streams an exact repository cache hit through the Worker binding", async () => {

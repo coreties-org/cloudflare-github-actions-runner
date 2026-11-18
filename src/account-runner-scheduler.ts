@@ -35,7 +35,7 @@ const SCHEDULER_ALARM_DELAY_MS = 60_000;
 const RUNNER_ASSIGNMENT_GITHUB_RECONCILE_INTERVAL_MS = 10_000;
 // Each reconcile probes candidate jobs through the GitHub API with a 5 s
 // per-request timeout; cap the whole sweep so it stays well inside the
-// job-started hook's 30 s budget even when the candidate list is full.
+// job-started hook's 120 s budget even when the candidate list is full.
 const RUNNER_ASSIGNMENT_GITHUB_RECONCILE_BUDGET_MS = 8_000;
 const RUNNER_COMPLETION_GRACE_MS = 30_000;
 // GitHub can deliver workflow_job: completed before actions/cache finishes its

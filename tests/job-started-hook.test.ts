@@ -146,10 +146,9 @@ describe("runner cache assignment hook", () => {
     }
   });
 
-  it("keeps polling when the assignment authorization is not yet visible", async () => {
-    // The Worker writes the assignment record and the container reads it back
-    // through Cloudflare's edge, so the first samples can 401 before the
-    // authorization propagates. That is a race, not a verdict.
+  it("fails at once when the Worker rejects the runner capability", async () => {
+    // The Worker answers 401 only for a bad signature or an expired claim and
+    // reads no storage to decide it, so polling again cannot change the answer.
     let attempts = 0;
     const server = createServer((_request, response) => {
       attempts += 1;
@@ -168,8 +167,13 @@ describe("runner cache assignment hook", () => {
           CF_RUNNER_CACHE_ASSIGNMENT_MAX_ATTEMPTS: "5",
           CF_RUNNER_CACHE_ASSIGNMENT_POLL_SECONDS: "0",
         }),
-      ).resolves.toEqual({ code: 0, stdout: "", stderr: "" });
-      expect(attempts).toBe(3);
+      ).resolves.toEqual({
+        code: 1,
+        stdout:
+          "::error title=Cloudflare runner cache assignment::The Worker rejected this runner's cache capability (HTTP 401): it has expired or was signed with a rotated key. Re-run the job.\n",
+        stderr: "",
+      });
+      expect(attempts).toBe(1);
       await expect(readFile(configurationPath)).rejects.toMatchObject({ code: "ENOENT" });
     } finally {
       await close(server);
@@ -268,7 +272,7 @@ describe("runner cache assignment hook", () => {
     }
   });
 
-  it("still fails closed when the authorization never becomes visible", async () => {
+  it("never prints the capability when the Worker rejects it", async () => {
     const server = createServer((_request, response) => response.writeHead(401).end());
     const port = await listen(server);
     const directory = await mkdtemp(join(tmpdir(), "runner-job-hook-test-"));
@@ -284,7 +288,7 @@ describe("runner cache assignment hook", () => {
       expect(result).toEqual({
         code: 1,
         stdout:
-          "::error title=Cloudflare runner cache assignment::GitHub's runner assignment was not observed within 2 seconds (last Worker status: 401).\n",
+          "::error title=Cloudflare runner cache assignment::The Worker rejected this runner's cache capability (HTTP 401): it has expired or was signed with a rotated key. Re-run the job.\n",
         stderr: "",
       });
       expect(result.stdout).not.toContain(capability);
