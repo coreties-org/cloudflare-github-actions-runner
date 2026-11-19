@@ -30,9 +30,13 @@ case "$workflow_run_id" in
   ''|*[!0-9]*|0*) ;;
   *) assignment_endpoint="$assignment_endpoint?run_id=$workflow_run_id" ;;
 esac
-assignment_max_attempts=${CF_RUNNER_CACHE_ASSIGNMENT_MAX_ATTEMPTS:-30}
+# GitHub can hand an idle runner a job whose own runner is still provisioning;
+# the scheduler only adopts that assignment once the job leaves provisioning,
+# which can take longer than 30 s on a busy pool.
+assignment_default_seconds=120
+assignment_max_attempts=${CF_RUNNER_CACHE_ASSIGNMENT_MAX_ATTEMPTS:-$assignment_default_seconds}
 case "$assignment_max_attempts" in
-  ''|*[!0-9]*) assignment_max_attempts=30 ;;
+  ''|*[!0-9]*) assignment_max_attempts=$assignment_default_seconds ;;
 esac
 while [ "${assignment_max_attempts#0}" != "$assignment_max_attempts" ]; do
   assignment_max_attempts=${assignment_max_attempts#0}
@@ -41,7 +45,7 @@ if [ -z "$assignment_max_attempts" ]; then
   assignment_max_attempts=0
 fi
 if [ "$assignment_max_attempts" -lt 1 ]; then
-  assignment_max_attempts=30
+  assignment_max_attempts=$assignment_default_seconds
 fi
 assignment_poll_seconds=${CF_RUNNER_CACHE_ASSIGNMENT_POLL_SECONDS:-1}
 case "$assignment_poll_seconds" in
@@ -72,12 +76,17 @@ while [ "$attempt" -le "$assignment_max_attempts" ]; do
   fi
   case "$status" in
     202) ;;
-    # Transient conditions, not verdicts. The assignment record is written by
-    # the Worker and read back through Cloudflare's edge, so a container can
-    # poll before its authorization is visible and see 401. 000 is curl's
-    # output for a connection failure. Keep polling inside the existing
-    # bounded window instead of failing the job on the first sample.
-    000|401|408|429|5??) ;;
+    # 401 is a verdict, not a transient state: the Worker checks only the
+    # capability's HMAC signature and expiry, with no storage read, so the
+    # same token can never become valid by polling again.
+    401)
+      printf '%s\n' "::error title=Cloudflare runner cache assignment::The Worker rejected this runner's cache capability (HTTP 401): it has expired or was signed with a rotated key. Re-run the job."
+      exit 1
+      ;;
+    # Transient conditions. 000 is curl's output for a connection failure.
+    # Keep polling inside the bounded window instead of failing the job on
+    # the first sample.
+    000|408|429|5??) ;;
     *)
       printf '%s\n' "::error title=Cloudflare runner cache assignment::The Worker returned HTTP $status while waiting for GitHub's runner assignment."
       exit 1
